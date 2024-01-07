@@ -1,8 +1,18 @@
 use image::{Rgb, RgbImage};
+use std::env;
 use std::fs;
 
 fn main() {
-    let path: &str = "/home/noa/Desktop/igctest/";
+
+    let argv: Vec<String> = env::args().collect();
+
+    if argv.len() != 3 {
+        eprintln!("Error, invalid arguments. Usage : <executable> <images directory> <target path>");
+        std::process::exit(0);
+    }
+
+    let path: &str = argv[1].as_str();
+    let target_path = argv[2].as_str();
 
     let names = list_files(path);
 
@@ -49,31 +59,49 @@ fn main() {
         })
         .collect();
 
-    for elm in &planches_floor {
-        println!("{:?}\n", elm);
-    }
-
-    let tile_size = (planches_floor.clone().into_iter().map(|elm| elm.3.0).max().unwrap(), planches_floor.clone().into_iter().map(|elm| elm.3.1).max().unwrap());
-    let nwidth = xlims.1 - xlims.0;
-    let nheight = ylims.1 - ylims.0;
-
-    println!("tile size : {:?}", tile_size);
+    let tile_size = (
+        planches_floor
+            .clone()
+            .into_iter()
+            .map(|elm| elm.3 .0)
+            .max()
+            .unwrap(),
+        planches_floor
+            .clone()
+            .into_iter()
+            .map(|elm| elm.3 .1)
+            .max()
+            .unwrap(),
+    );
+    let nwidth = xlims.1 - xlims.0 + 1;
+    let nheight = ylims.1 - ylims.0 + 1;
 
     let render_size: (u32, u32) = (tile_size.0 * nwidth, tile_size.1 * nheight);
 
-    println!("render size : {:?}", render_size);
+    let mut target = RgbImage::new(render_size.0, render_size.1);
 
-/////////////////////////////////////////////////////////////
-    let mut image_buffer = RgbImage::new(100, 100);
-
-    for (_, _, pixel) in image_buffer.enumerate_pixels_mut() {
+    for (_, _, pixel) in target.enumerate_pixels_mut() {
         *pixel = Rgb([255, 255, 255]);
     }
 
-    if let Err(e) = image_buffer.save("image.png") {
+    for planche in &planches_floor {
+        let dimage = image::open(planche.0.clone()).unwrap();
+        let image = dimage.to_rgb8();
+
+        let x_offset = planche.1 * (tile_size.0 - 1);
+        let y_offset = planche.2 * (tile_size.1 - 1);
+
+        for x in 0..planche.3 .0 {
+            for y in 0..planche.3 .1 {
+                let current_pixel = image.get_pixel(x, y);
+                target.put_pixel(x_offset + x, y_offset + y, *current_pixel);
+            }
+        }
+    }
+
+    if let Err(e) = target.save(target_path) {
         eprintln!("Erreur lors de l'enregistrement de l'image : {}", e);
     }
-//////////////////////////////////////////////////////////////
 }
 
 fn list_files(chemin_dossier: &str) -> Vec<String> {
