@@ -1,5 +1,4 @@
-use image::{ImageError, ImageResult};
-use image::{imageops, Rgb, RgbImage};
+use image::{imageops, ImageError, Rgb, RgbImage};
 use std::env;
 use std::fs;
 use std::io;
@@ -11,7 +10,7 @@ struct Tile {
 }
 
 impl Tile {
-    fn new(path: &String) -> Option<Result<Tile,(image::ImageError, String)>> {
+    fn new(path: &String) -> Option<Result<Tile, (image::ImageError, String)>> {
         let name: String = path.split('/').last()?.to_string();
 
         let splt: Vec<&str> = name.split('-').collect();
@@ -19,39 +18,29 @@ impl Tile {
             return None;
         }
 
-        let pos: (_, _) = (splt[0].parse::<u32>(), splt[1].parse::<u32>());
-
-        let (x, y) = match pos {
+        let pos: (u32, u32) = match (splt[0].parse::<u32>(), splt[1].parse::<u32>()) {
             (Ok(x), Ok(y)) => (x, y),
-            _ => return None,
+            _ => {
+                return None;
+            }
         };
 
-        let size = image::image_dimensions(&path);
-        if size.is_err() {
-            Some(Err((size.err().unwrap(), path.clone())))
-        }
-        else {
-            let sizes = size.unwrap();
-
-            Some(Ok(Tile {
+        match image::image_dimensions(&path) {
+            Err(e) => Some(Err((e, path.clone()))),
+            Ok(s) => Some(Ok(Tile {
                 path: path.clone(),
-                size: sizes,
-                pos: (x, y),
-            }))
+                size: s,
+                pos: pos,
+            })),
         }
     }
 }
 
-fn find_images(files: Vec<String>) -> Option<Vec<String>> {
-    let images: Vec<String> = files
+fn find_images(files: Vec<String>) -> Vec<String> {
+    files
         .into_iter()
         .filter(|elm| elm.ends_with(".jpg"))
-        .collect();
-    if images.len() > 0 {
-        Some(images)
-    } else {
-        None
-    }
+        .collect()
 }
 
 fn tiles_size(tiles: &Vec<Tile>) -> (u32, u32) {
@@ -73,19 +62,28 @@ fn tiled_size(limits: ((u32, u32), (u32, u32))) -> (u32, u32) {
 }
 
 fn list_files(path: &str) -> Result<Vec<String>, io::Error> {
-    let dir = fs::read_dir(path)?;
+    let corrected_path: String;
+
+    if path.ends_with('/') {
+        corrected_path = path.to_string();
+    }
+    else {
+        corrected_path = path.to_string() + "/";
+    }
+    let dir = fs::read_dir(&corrected_path)?;
     Ok(dir
         .filter_map(|entry| {
             entry
                 .ok()
                 .map(|e| e.file_name().to_string_lossy().to_string())
         })
+        .map(|elm| corrected_path.clone() + elm.as_str())
         .collect())
 }
 
 fn get_tiles(images: Vec<String>) -> Vec<Tile> {
     let mut tiles: Vec<Tile> = vec![];
-    
+
     for image in images {
         let candidate = Tile::new(&image);
         if candidate.is_some() {
@@ -93,8 +91,7 @@ fn get_tiles(images: Vec<String>) -> Vec<Tile> {
             if result.is_err() {
                 let e = result.err().unwrap();
                 eprintln!("Failed to read image size for {}. {}", e.1, e.0);
-            }
-            else {
+            } else {
                 tiles.push(result.unwrap());
             }
         }
@@ -103,7 +100,6 @@ fn get_tiles(images: Vec<String>) -> Vec<Tile> {
 }
 
 fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
-
     let extrems_pos: ((u32, u32), (u32, u32)) = limits(&tiles);
     let tiling_size: (u32, u32) = tiled_size(extrems_pos);
     let void_size: (u32, u32) = tiles_size(&tiles);
@@ -129,9 +125,10 @@ fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
     println!("\nWritting to {target_path}...");
     match target.save(target_path) {
         Err(e) => Some(e),
-        Ok(_) => None
+        Ok(_) => None,
     }
 }
+
 fn main() {
     let argv: Vec<String> = env::args().collect();
 
@@ -145,21 +142,24 @@ fn main() {
     let path = &argv[1];
     let target_path = &argv[2];
 
-    let files: Vec<String> = list_files(&path).unwrap()
-        .into_iter()
-        .map(|elm| path.to_string() + elm.as_str())
-        .collect();
+    let files: Vec<String> = match list_files(path) {
+        Err(e) => {
+            eprintln!("Error when listing files at {}. {}", path, e);
+            std::process::exit(1);
+        }
+        Ok(files) => files,
+    };
     if files.len() == 0 {
         println!("There is not any file at this location");
         std::process::exit(0);
     }
     let images = find_images(files);
-    if images.is_none() {
+    if images.len() == 0 {
         println!("No image found");
         std::process::exit(0);
     }
 
-    let tiles = get_tiles(images.unwrap());
+    let tiles = get_tiles(images);
     if tiles.len() == 0 {
         println!("Wrong image name format, no tile found");
         std::process::exit(0);
