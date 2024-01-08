@@ -1,3 +1,4 @@
+use image::{ImageError, ImageResult};
 use image::{imageops, Rgb, RgbImage};
 use std::env;
 use std::fs;
@@ -100,6 +101,39 @@ fn get_tiles(images: Vec<String>) -> Vec<Tile> {
     }
     tiles
 }
+
+fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
+
+    let extrems_pos: ((u32, u32), (u32, u32)) = limits(&tiles);
+    let tiling_size: (u32, u32) = tiled_size(extrems_pos);
+    let void_size: (u32, u32) = tiles_size(&tiles);
+    let render_size: (u32, u32) = (tiling_size.0 * void_size.0, tiling_size.1 * void_size.1);
+
+    let mut target = RgbImage::new(render_size.0, render_size.1);
+
+    image::imageops::vertical_gradient(&mut target, &Rgb([255, 255, 255]), &Rgb([255, 255, 255]));
+
+    for tile in tiles {
+        let tile_image = image::open(tile.path.clone());
+        if tile_image.is_err() {
+            return Some(tile_image.err().unwrap());
+        }
+        let image = tile_image.unwrap().to_rgb8();
+
+        let x_offset = (tile.pos.0 - extrems_pos.0 .0) * (void_size.0 - 1);
+        let y_offset = (tile.pos.1 - extrems_pos.0 .1) * (void_size.1 - 1);
+
+        imageops::overlay(&mut target, &image, x_offset.into(), y_offset.into());
+        println!("Tile Written");
+    }
+    println!("\nWritting to {target_path}...");
+    if let Err(e) = target.save(target_path) {
+        Some(e)
+    }
+    else {
+        None
+    }
+}
 fn main() {
     let argv: Vec<String> = env::args().collect();
 
@@ -132,28 +166,12 @@ fn main() {
         println!("Wrong image name format, no tile found");
         std::process::exit(0);
     }
-
-    let extrems_pos: ((u32, u32), (u32, u32)) = limits(&tiles);
-    let tiling_size: (u32, u32) = tiled_size(extrems_pos);
-    let void_size: (u32, u32) = tiles_size(&tiles);
-    let render_size: (u32, u32) = (tiling_size.0 * void_size.0, tiling_size.1 * void_size.1);
-
-    let mut target = RgbImage::new(render_size.0, render_size.1);
-
-    image::imageops::vertical_gradient(&mut target, &Rgb([255, 255, 255]), &Rgb([255, 255, 255]));
-
-    for tile in &tiles {
-        let tile_image = image::open(tile.path.clone()).expect("failed to open an image");
-        let image = tile_image.to_rgb8();
-
-        let x_offset = (tile.pos.0 - extrems_pos.0 .0) * (void_size.0 - 1);
-        let y_offset = (tile.pos.1 - extrems_pos.0 .1) * (void_size.1 - 1);
-
-        imageops::overlay(&mut target, &image, x_offset.into(), y_offset.into());
-        println!("Tile Written");
-    }
-    println!("\nSaving the padding to {target_path}...");
-    if let Err(e) = target.save(target_path) {
-        eprintln!("Error while saving target image : {}", e);
+    match write_tiles(&tiles, target_path) {
+        Some(e) => {
+            eprintln!("Error during writing{}", e);
+        }
+        None => {
+            println!("Target written at {}", target_path);
+        }
     }
 }
