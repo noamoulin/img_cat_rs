@@ -2,6 +2,7 @@ use image::{imageops, ImageError, Rgb, RgbImage};
 use std::env;
 use std::fs;
 use std::io;
+use std::path::Path;
 
 struct Tile {
     path: String,
@@ -9,27 +10,48 @@ struct Tile {
     pos: (u32, u32),
 }
 
+enum TileError {
+    ImageError(image::ImageError),
+    NoPath,
+    NoSize,
+    InvalidSize((String, String)),
+}
+
+impl std::fmt::Display for TileError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            TileError::ImageError(e) => write!(f, "ImageError : {}", e),
+            TileError::NoPath => write!(f, "NoPath"),
+            TileError::NoSize => write!(f, "NoSize"),
+            TileError::InvalidSize(e) => write!(f, "InvalidSize : {} {}", e.0, e.1),
+        }
+    }
+}
+
 impl Tile {
-    fn new(path: &String) -> Option<Result<Tile, (image::ImageError, String)>> {
-        let name: String = path.split('/').last()?.to_string();
+    fn new(path: &String) -> Result<Tile, TileError> {
+        let name: String = match path.split('/').last() {
+            Some(name) => name.to_string(),
+            None => return Err(TileError::NoPath),
+        };
 
         let splt: Vec<&str> = name.split('-').collect();
         if splt.len() < 2 {
-            return None;
+            return Err(TileError::NoSize);
         }
         let pos: (u32, u32) = match (splt[0].parse::<u32>(), splt[1].parse::<u32>()) {
             (Ok(x), Ok(y)) => (x, y),
             _ => {
-                return None;
+                return Err(TileError::InvalidSize((splt[0].to_string(), splt[1].to_string())));
             }
         };
         match image::image_dimensions(&path) {
-            Err(e) => Some(Err((e, path.clone()))),
-            Ok(s) => Some(Ok(Tile {
+            Err(e) => Err(TileError::ImageError(e)),
+            Ok(s) => Ok(Tile {
                 path: path.clone(),
                 size: s,
                 pos: pos,
-            })),
+            }),
         }
     }
 }
@@ -82,16 +104,12 @@ fn get_tiles(images: Vec<String>) -> Vec<Tile> {
     let mut tiles: Vec<Tile> = vec![];
 
     for image in images {
-        let candidate = Tile::new(&image);
-        if candidate.is_some() {
-            let result = candidate.unwrap();
-            if result.is_err() {
-                let e = result.err().unwrap();
-                eprintln!("Failed to read image size for {}. {}", e.1, e.0);
-            } else {
-                tiles.push(result.unwrap());
-            }
-        }
+        match Tile::new(&image) {
+            Ok(tile) => tiles.push(tile),
+            Err(e) => {
+                eprintln!("Error when parsing image {} : {}", image, e);
+            },
+        };
     }
     tiles
 }
