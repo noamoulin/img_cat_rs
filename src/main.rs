@@ -127,11 +127,9 @@ fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
         println!("Tile Written");
     }
     println!("\nWritting to {target_path}...");
-    if let Err(e) = target.save(target_path) {
-        Some(e)
-    }
-    else {
-        None
+    match target.save(target_path) {
+        Err(e) => Some(e),
+        Ok(_) => None
     }
 }
 fn main() {
