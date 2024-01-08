@@ -1,116 +1,138 @@
-use image::{Rgb, RgbImage};
+use image::{imageops, Rgb, RgbImage};
 use std::env;
 use std::fs;
 
-fn main() {
+struct Tile {
+    path: String,
+    size: (u32, u32),
+    pos: (u32, u32),
+}
 
-    let argv: Vec<String> = env::args().collect();
+impl Tile {
+    fn new(path: String) -> Option<Tile> {
+        let name: String = path.split('/').last()?.to_string();
 
-    if argv.len() != 3 {
-        eprintln!("Error, invalid arguments. Usage : <executable> <images directory> <target path>");
-        std::process::exit(0);
-    }
-
-    let path: &str = argv[1].as_str();
-    let target_path = argv[2].as_str();
-
-    let names = list_files(path);
-
-    let images: Vec<String> = names
-        .into_iter()
-        .filter(|elm| elm.ends_with(".jpg"))
-        .collect();
-    let elues: Vec<(String, Vec<u32>)> = images
-        .into_iter()
-        .map(|name| {
-            (
-                name.clone(),
-                name.split('-')
-                    .filter(|elm| elm.chars().all(|chr| chr.is_numeric()))
-                    .map(|n| n.parse::<u32>().unwrap())
-                    .collect(),
-            )
-        })
-        .collect();
-    let planches: Vec<(String, Vec<u32>)> =
-        elues.into_iter().filter(|elm| elm.1.len() == 2).collect();
-    let positions_x: Vec<u32> = planches.iter().map(|elm| elm.1[0]).collect();
-    let positions_y: Vec<u32> = planches.iter().map(|elm| elm.1[1]).collect();
-
-    let xlims = (
-        positions_x.iter().min().unwrap(),
-        positions_x.iter().max().unwrap(),
-    );
-    let ylims = (
-        positions_y.iter().min().unwrap(),
-        positions_y.iter().max().unwrap(),
-    );
-
-    let planches_floor: Vec<(String, u32, u32, (_, _))> = planches
-        .into_iter()
-        .map(|elm| {
-            (
-                path.to_string() + elm.0.clone().as_str(),
-                elm.1[0] - xlims.0,
-                elm.1[1] - ylims.0,
-                image::image_dimensions(path.to_string() + elm.0.clone().as_str())
-                    .expect("Aucune image dans le repertoire selectionné"),
-            )
-        })
-        .collect();
-
-    let tile_size = (
-        planches_floor
-            .clone()
-            .into_iter()
-            .map(|elm| elm.3 .0)
-            .max()
-            .unwrap(),
-        planches_floor
-            .clone()
-            .into_iter()
-            .map(|elm| elm.3 .1)
-            .max()
-            .unwrap(),
-    );
-    let nwidth = xlims.1 - xlims.0 + 1;
-    let nheight = ylims.1 - ylims.0 + 1;
-
-    let render_size: (u32, u32) = (tile_size.0 * nwidth, tile_size.1 * nheight);
-
-    let mut target = RgbImage::new(render_size.0, render_size.1);
-
-    for (_, _, pixel) in target.enumerate_pixels_mut() {
-        *pixel = Rgb([255, 255, 255]);
-    }
-
-    for planche in &planches_floor {
-        let dimage = image::open(planche.0.clone()).unwrap();
-        let image = dimage.to_rgb8();
-
-        let x_offset = planche.1 * (tile_size.0 - 1);
-        let y_offset = planche.2 * (tile_size.1 - 1);
-
-        for x in 0..planche.3 .0 {
-            for y in 0..planche.3 .1 {
-                let current_pixel = image.get_pixel(x, y);
-                target.put_pixel(x_offset + x, y_offset + y, *current_pixel);
-            }
+        let splt: Vec<&str> = name.split('-').collect();
+        if splt.len() < 2 {
+            return None;
         }
-    }
 
-    if let Err(e) = target.save(target_path) {
-        eprintln!("Erreur lors de l'enregistrement de l'image : {}", e);
+        let pos: (_, _) = (splt[0].parse::<u32>(), splt[1].parse::<u32>());
+
+        let (x, y) = match pos {
+            (Ok(x), Ok(y)) => (x, y),
+            _ => return None,
+        };
+
+        let size = match image::image_dimensions(&path) {
+            Ok(dimensions) => dimensions,
+            Err(_) => return None,
+        };
+
+        Some(Tile {
+            path,
+            size,
+            pos: (x, y),
+        })
     }
 }
 
-fn list_files(chemin_dossier: &str) -> Vec<String> {
-    fs::read_dir(chemin_dossier)
-        .expect("Erreur lors de la lecture du dossier")
+fn find_images(files: Vec<String>) -> Option<Vec<String>> {
+    let images: Vec<String> = files
+        .into_iter()
+        .filter(|elm| elm.ends_with(".jpg"))
+        .collect();
+    if images.len() > 0 {
+        Some(images)
+    } else {
+        None
+    }
+}
+
+fn tiles_size(tiles: &Vec<Tile>) -> (u32, u32) {
+    let max_width = tiles.into_iter().map(|elm| elm.size.0).max().unwrap();
+    let max_height = tiles.into_iter().map(|elm| elm.size.1).max().unwrap();
+    (max_width, max_height)
+}
+
+fn limits(tiles: &Vec<Tile>) -> ((u32, u32), (u32, u32)) {
+    let x_offset = tiles.into_iter().map(|elm| elm.pos.0).min().unwrap();
+    let y_offset = tiles.into_iter().map(|elm| elm.pos.1).min().unwrap();
+    let x_max = tiles.into_iter().map(|elm| elm.pos.0).max().unwrap();
+    let y_max = tiles.into_iter().map(|elm| elm.pos.1).max().unwrap();
+    ((x_offset, y_offset), (x_max, y_max))
+}
+
+fn tiled_size(limits: ((u32, u32), (u32, u32))) -> (u32, u32) {
+    (limits.1 .0 - limits.0 .0, limits.1 .1 - limits.0 .1)
+}
+
+fn list_files(path: &str) -> Vec<String> {
+    //Propager l'erreur !
+    fs::read_dir(path)
+        .expect("Error when reding in directory")
         .filter_map(|entry| {
             entry
                 .ok()
                 .map(|e| e.file_name().to_string_lossy().to_string())
         })
         .collect()
+}
+fn main() {
+    let argv: Vec<String> = env::args().collect();
+
+    if argv.len() != 3 {
+        eprintln!(
+            "Error, invalid arguments. Usage : <executable> <images directory> <target path>"
+        );
+        std::process::exit(0);
+    }
+
+    let path = &argv[1];
+    let target_path = &argv[2];
+
+    let files: Vec<String> = list_files(&path)
+        .into_iter()
+        .map(|elm| path.to_string() + elm.as_str())
+        .collect();
+    if files.len() == 0 {
+        println!("There is not any file at this location");
+        std::process::exit(0);
+    }
+    let images = find_images(files).expect("No image found");
+    let tiles: Vec<Tile> = images
+        .into_iter()
+        .map(Tile::new)
+        .filter(|elm| elm.is_some())
+        .map(Option::unwrap)
+        .collect();
+
+    if tiles.len() == 0 {
+        println!("Wrong image name format");
+        std::process::exit(0);
+    }
+
+    let extrems_pos: ((u32, u32), (u32, u32)) = limits(&tiles);
+    let tiling_size: (u32, u32) = tiled_size(extrems_pos);
+    let void_size: (u32, u32) = tiles_size(&tiles);
+    let render_size: (u32, u32) = (tiling_size.0 * void_size.0, tiling_size.1 * void_size.1);
+
+    let mut target = RgbImage::new(render_size.0, render_size.1);
+
+    image::imageops::vertical_gradient(&mut target, &Rgb([255, 255, 255]), &Rgb([255, 255, 255]));
+
+    for tile in &tiles {
+        let tile_image = image::open(tile.path.clone()).expect("failed to open an image");
+        let image = tile_image.to_rgb8();
+
+        let x_offset = (tile.pos.0 - extrems_pos.0 .0) * (void_size.0 - 1);
+        let y_offset = (tile.pos.1 - extrems_pos.0 .1) * (void_size.1 - 1);
+
+        imageops::overlay(&mut target, &image, x_offset.into(), y_offset.into());
+        println!("Tile Written");
+    }
+    println!("\nSaving the padding to {target_path}...");
+    if let Err(e) = target.save(target_path) {
+        eprintln!("Error while saving target image : {}", e);
+    }
 }
