@@ -1,6 +1,7 @@
 use image::{imageops, Rgb, RgbImage};
 use std::env;
 use std::fs;
+use std::io;
 
 struct Tile {
     path: String,
@@ -9,7 +10,7 @@ struct Tile {
 }
 
 impl Tile {
-    fn new(path: String) -> Option<Tile> {
+    fn new(path: &String) -> Option<Result<Tile,(image::ImageError, String)>> {
         let name: String = path.split('/').last()?.to_string();
 
         let splt: Vec<&str> = name.split('-').collect();
@@ -24,16 +25,19 @@ impl Tile {
             _ => return None,
         };
 
-        let size = match image::image_dimensions(&path) {
-            Ok(dimensions) => dimensions,
-            Err(_) => return None,
-        };
+        let size = image::image_dimensions(&path);
+        if size.is_err() {
+            Some(Err((size.err().unwrap(), path.clone())))
+        }
+        else {
+            let sizes = size.unwrap();
 
-        Some(Tile {
-            path,
-            size,
-            pos: (x, y),
-        })
+            Some(Ok(Tile {
+                path: path.clone(),
+                size: sizes,
+                pos: (x, y),
+            }))
+        }
     }
 }
 
@@ -67,16 +71,34 @@ fn tiled_size(limits: ((u32, u32), (u32, u32))) -> (u32, u32) {
     (limits.1 .0 - limits.0 .0, limits.1 .1 - limits.0 .1)
 }
 
-fn list_files(path: &str) -> Vec<String> {
-    //Propager l'erreur !
-    fs::read_dir(path)
-        .expect("Error when reding in directory")
+fn list_files(path: &str) -> Result<Vec<String>, io::Error> {
+    let dir = fs::read_dir(path)?;
+    Ok(dir
         .filter_map(|entry| {
             entry
                 .ok()
                 .map(|e| e.file_name().to_string_lossy().to_string())
         })
-        .collect()
+        .collect())
+}
+
+fn get_tiles(images: Vec<String>) -> Vec<Tile> {
+    let mut tiles: Vec<Tile> = vec![];
+    
+    for image in images {
+        let candidate = Tile::new(&image);
+        if candidate.is_some() {
+            let result = candidate.unwrap();
+            if result.is_err() {
+                let e = result.err().unwrap();
+                eprintln!("Failed to read image size for {}. {}", e.1, e.0);
+            }
+            else {
+                tiles.push(result.unwrap());
+            }
+        }
+    }
+    tiles
 }
 fn main() {
     let argv: Vec<String> = env::args().collect();
@@ -91,7 +113,7 @@ fn main() {
     let path = &argv[1];
     let target_path = &argv[2];
 
-    let files: Vec<String> = list_files(&path)
+    let files: Vec<String> = list_files(&path).unwrap()
         .into_iter()
         .map(|elm| path.to_string() + elm.as_str())
         .collect();
@@ -99,16 +121,15 @@ fn main() {
         println!("There is not any file at this location");
         std::process::exit(0);
     }
-    let images = find_images(files).expect("No image found");
-    let tiles: Vec<Tile> = images
-        .into_iter()
-        .map(Tile::new)
-        .filter(|elm| elm.is_some())
-        .map(Option::unwrap)
-        .collect();
+    let images = find_images(files);
+    if images.is_none() {
+        println!("No image found");
+        std::process::exit(0);
+    }
 
+    let tiles = get_tiles(images.unwrap());
     if tiles.len() == 0 {
-        println!("Wrong image name format");
+        println!("Wrong image name format, no tile found");
         std::process::exit(0);
     }
 
