@@ -17,14 +17,12 @@ impl Tile {
         if splt.len() < 2 {
             return None;
         }
-
         let pos: (u32, u32) = match (splt[0].parse::<u32>(), splt[1].parse::<u32>()) {
             (Ok(x), Ok(y)) => (x, y),
             _ => {
                 return None;
             }
         };
-
         match image::image_dimensions(&path) {
             Err(e) => Some(Err((e, path.clone()))),
             Ok(s) => Some(Ok(Tile {
@@ -66,8 +64,7 @@ fn list_files(path: &str) -> Result<Vec<String>, io::Error> {
 
     if path.ends_with('/') {
         corrected_path = path.to_string();
-    }
-    else {
+    } else {
         corrected_path = path.to_string() + "/";
     }
     let dir = fs::read_dir(&corrected_path)?;
@@ -106,7 +103,6 @@ fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
     let render_size: (u32, u32) = (tiling_size.0 * void_size.0, tiling_size.1 * void_size.1);
 
     let mut target = RgbImage::new(render_size.0, render_size.1);
-
     image::imageops::vertical_gradient(&mut target, &Rgb([255, 255, 255]), &Rgb([255, 255, 255]));
 
     for tile in tiles {
@@ -115,7 +111,6 @@ fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
             return Some(tile_image.err().unwrap());
         }
         let image = tile_image.unwrap().to_rgb8();
-
         let x_offset = (tile.pos.0 - extrems_pos.0 .0) * (void_size.0 - 1);
         let y_offset = (tile.pos.1 - extrems_pos.0 .1) * (void_size.1 - 1);
 
