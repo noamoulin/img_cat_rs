@@ -102,6 +102,8 @@ fn write_tiles(tiles: &Vec<Tile>, target_path: &String) -> Option<ImageError> {
     let void_size: (u32, u32) = tiles_size(&tiles);
     let render_size: (u32, u32) = (tiling_size.0 * void_size.0, tiling_size.1 * void_size.1);
 
+    println!("{:?}" ,render_size);
+
     let mut target = RgbImage::new(render_size.0, render_size.1);
     image::imageops::vertical_gradient(&mut target, &Rgb([255, 255, 255]), &Rgb([255, 255, 255]));
 
